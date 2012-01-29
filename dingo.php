@@ -9,7 +9,7 @@ class Dingo {
 	private $_dynamic_routes = array();
 	private $_request_uri = '';
 	private $_base_url = '';
-	private $_response_status = 200;
+	private $_status = 200;
 	private $_response_body = '';
 	private $_segments = array();
 	private $_configs = array();
@@ -212,7 +212,7 @@ class Dingo {
 			$url = $this->url($url);
 		}
 		$this->header('Location', $url);
-		$this->_response_status = $status;
+		$this->_status = $status;
 		throw new Stop_dingo();
 	}
 
@@ -242,7 +242,7 @@ class Dingo {
 	 * @return void
 	 */
 	public function set_status_header($status = 200) {
-		$this->_response_status = $status;
+		$this->_status = $status;
 	}
 
 	/**
@@ -383,6 +383,7 @@ class Dingo {
 	 * @return void
 	 */
 	public function run() {
+		$this->hook_run('pre_system');
 		try {
 			$this->hook_run('pre_route', array($this->_request_uri));
 			if (!$this->_routed) {
@@ -410,27 +411,19 @@ class Dingo {
 			} else {
 				call_user_func_array($this->_callback, $this->_params);
 			}
-			# Must run before sending header because of 'Content-Length'
-			$this->hook_run('pre_output');
-			$this->_send_header();
-			if (($this->_response_status < 100 || $this->_response_status >= 200) && $this->_response_status != 204 && $this->_response_status != 304
-				&& !empty($_SERVER['REQUEST_METHOD']) && $_SERVER['REQUEST_METHOD'] !== 'HEAD')
-			{
-				echo $this->_response_body;
-				$this->hook_run('post_output');
-			}
-		} catch (Stop_dingo $e) {
-			# Redirect
-			$this->_send_header();
-		}
-	}
+		} catch (Stop_dingo $e) {}
 
-	/**
-	 * Destructor. Calls post_system hook
-	 */
-	public function __destruct() {
+		# Hook 'pre_output' must run before sending header because of 'Content-Length'
+		$this->hook_run('pre_output');
+		$this->_send_header();
+		if (($this->_status < 100 || $this->_status >= 200) && !in_array($this->_status,array(204,304,302)) && !empty($_SERVER['REQUEST_METHOD']) && $_SERVER['REQUEST_METHOD'] !== 'HEAD')
+		{
+			echo $this->_response_body;
+			$this->hook_run('post_output');
+		}
 		$this->hook_run('post_system');
 	}
+
 	/**
 	 * Checks regex url
 	 * @param string $pattern
@@ -478,23 +471,24 @@ class Dingo {
 	 * Sends HTTP header to browser
 	 */
 	private function _send_header() {
-		if (!headers_sent()) {
+		if (headers_sent()) {return;}
+		if (!in_array($this->_status,array(204,304,302))) {
 			$this->_headers['Content-Length'] = strlen($this->_response_body);
-			if (empty($this->_headers['Content-Type'])) {
-				$this->_headers['Content-Type'] = 'text/html; charset=utf-8';
+		}
+		if (empty($this->_headers['Content-Type'])) {
+			$this->_headers['Content-Type'] = 'text/html; charset=utf-8';
+		}
+		if (substr(PHP_SAPI, 0, 3) === 'cgi') {
+			header('Status: ' . $this->_response_msg[$this->_status]);
+		} else {
+			header('HTTP/' . $this->_configs['http_version'] . ' ' . $this->_response_msg[$this->_status]);
+			foreach ($this->_headers as $name => $value) {
+				header("{$name}: {$value}");
 			}
-			if (substr(PHP_SAPI, 0, 3) === 'cgi') {
-				header('Status: ' . $this->_response_msg[$this->_response_status]);
-			} else {
-				header('HTTP/' . $this->_configs['http_version'] . ' ' . $this->_response_msg[$this->_response_status]);
-				foreach ($this->_headers as $name => $value) {
-					header("{$name}: {$value}");
-				}
-				foreach ($this->_cookies as $cookie) {
-					setcookie($cookie['name'], $cookie['value'], $cookie['expires'], $cookie['path'], $cookie['domain'], $cookie['secure']);
-				}
-				flush();
+			foreach ($this->_cookies as $cookie) {
+				setcookie($cookie['name'], $cookie['value'], $cookie['expires'], $cookie['path'], $cookie['domain'], $cookie['secure']);
 			}
+			flush();
 		}
 	}
 
