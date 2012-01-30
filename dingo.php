@@ -83,7 +83,7 @@ class Dingo {
 			'cookie_domain' => '',
 			'cookie_path' => '/',
 			'cookie_secure' => false,
-		), $config);
+				), $config);
 
 		# Getting Base Url
 		if (isset($_SERVER['HTTP_HOST'])) {
@@ -300,6 +300,7 @@ class Dingo {
 	public function routed() {
 		return $this->_routed;
 	}
+
 	/**
 	 * Sets route callback
 	 * @param string|function $callback
@@ -330,7 +331,7 @@ class Dingo {
 	 * @param array $conditions             Additional conditions
 	 * @return void
 	 */
-	public function route_map_regex($route, $callback, $conditions = array()) {
+	public function route_map_regex($route, $callback, $conditions = null) {
 		$this->_dynamic_routes[trim($route, '/')] = array($callback, $conditions);
 	}
 
@@ -411,15 +412,15 @@ class Dingo {
 			} else {
 				call_user_func_array($this->_callback, $this->_params);
 			}
-		} catch (Stop_dingo $e) {}
+		} catch (Stop_dingo $e) {
+			
+		}
 
 		# Hook 'pre_output' must run before sending header because of 'Content-Length'
 		$this->hook_run('pre_output');
 		$this->_send_header();
-		if (($this->_status < 100 || $this->_status >= 200) && !in_array($this->_status,array(204,304,302)) && !empty($_SERVER['REQUEST_METHOD']) && $_SERVER['REQUEST_METHOD'] !== 'HEAD')
-		{
+		if (($this->_status < 100 || $this->_status >= 200) && !in_array($this->_status, array(204, 304, 302)) && !empty($_SERVER['REQUEST_METHOD']) && $_SERVER['REQUEST_METHOD'] !== 'HEAD') {
 			echo $this->_response_body;
-			$this->hook_run('post_output');
 		}
 		$this->hook_run('post_system');
 	}
@@ -431,49 +432,57 @@ class Dingo {
 	 * @param array $conditions
 	 * @return bool
 	 */
-	private function _regex_url($pattern, $target, $conditions = array()) {
+	private function _regex_url($pattern, $target, $conditions) {
 		$p_names = array();
 		$p_values = array();
-		$to_return = false;
-		preg_match_all('@:([\w]+)@', $pattern, $p_names, PREG_PATTERN_ORDER);
-		$p_names = $p_names[0];
+		if (preg_match_all('@:([\w]+)@', $pattern, $p_names, PREG_PATTERN_ORDER)) {
+			$p_names = $p_names[0];
 
-		$url_regex = preg_replace_callback('@:[\w]+@', function ($matches) use ($conditions) {
-					$key = ltrim($matches[0], ':');
-					if (array_key_exists($key, $conditions)) {
-						return '(' . $conditions[$key] . ')';
-					} else {
-						return '([a-zA-Z0-9_\+\-%]+)';
-					}
-				}, $pattern);
-		$url_regex .= '/?';
-		if (preg_match('@^' . $url_regex . '$@', $this->_request_uri, $p_values)) {
-			array_shift($p_values);
-			$params = array();
-			foreach ($p_names as $index => $val) {
-				$params[substr($val, 1)] = urldecode($p_values[$index]);
+			if (is_null($conditions)) {
+				$url_regex = preg_replace('@:[\w]+@', '([a-zA-Z0-9_\+\-%]+)', $pattern);
+			} else {
+				$url_regex = preg_replace_callback('@:[\w]+@', function ($matches) use ($conditions) {
+							$key = ltrim($matches[0], ':');
+							if (array_key_exists($key, $conditions)) {
+								return '(' . $conditions[$key] . ')';
+							} else {
+								return '([a-zA-Z0-9_\+\-%]+)';
+							}
+						}, $pattern);
 			}
-			if (is_array($target)) {
-				foreach ($target as $key => $value) {
-					$params[$key] = $value;
+			$url_regex .= '/?';
+			if (preg_match('@^' . $url_regex . '$@', $this->_request_uri, $p_values)) {
+				array_shift($p_values);
+				$params = array();
+				foreach ($p_names as $index => $val) {
+					$params[substr($val, 1)] = urldecode($p_values[$index]);
 				}
+				if (is_array($target)) {
+					foreach ($target as $key => $value) {
+						$params[$key] = $value;
+					}
+				}
+				$this->route_set_callback($target, $params);
+				return true;
 			}
-			$this->route_set_callback($target, $params);
-			unset($params);
-			$to_return = true;
+		} else {
+			if (preg_match('@^' . $pattern . '$@', $this->_request_uri, $p_values)) {
+				$this->route_set_callback($target);
+				return true;
+			}
 		}
-		unset($p_names);
-		unset($p_values);
-		return $to_return;
+		return false;
 	}
 
 	/**
 	 * Sends HTTP header to browser
 	 */
 	private function _send_header() {
-		if (headers_sent()) {return;}
-		if (!in_array($this->_status,array(204,304,302))) {
-			$this->_headers['Content-Length'] = strlen($this->_response_body);
+		if (headers_sent()) {
+			return;
+		}
+		if (!in_array($this->_status, array(204, 304, 302))) {
+			#$this->_headers['Content-Length'] = strlen($this->_response_body);
 		}
 		if (empty($this->_headers['Content-Type'])) {
 			$this->_headers['Content-Type'] = 'text/html; charset=utf-8';
@@ -497,19 +506,20 @@ class Dingo {
 			foreach ($data as $key => $value) {
 				if (is_array($value)) {
 					$data[$key] = $this->_clean_request($value);
-				}
-				else {
+				} else {
 					$data[$key] = $this->xss_clean($value);
 				}
 			}
 			return $data;
-		}
-		else {
+		} else {
 			return $this->xss_clean($data);
 		}
 	}
+
 }
 
-class Stop_dingo extends Exception {}
+class Stop_dingo extends Exception {
+	
+}
 
 ?>
