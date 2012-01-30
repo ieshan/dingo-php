@@ -321,22 +321,21 @@ class Dingo {
 	 * Add route
 	 * @param string $route                 Static route
 	 * @param string|function $callback     Callback function
+	 * @param array $methods                HTTP method
 	 * @return void
 	 */
 	public function route_map($route, $callback, $methods = null) {
 		$route = empty($route) ? '/' : (($route !== '/') ? trim($route) : '/');
 		if (is_null($methods)) {
 			$this->_static_routes[$route]['ALL'] = $this->_callback_count;
-			$this->_callbacks[$this->_callback_count] = $callback;
-			$this->_callback_count++;
-			return;
 		}
-
-		foreach ($methods as $method) {
-			$this->_static_routes[$route][$method] = $this->_callback_count;
-			$this->_callbacks[$this->_callback_count] = $callback;
-			$this->_callback_count++;
+		else {
+			foreach ($methods as $method) {
+				$this->_static_routes[$route][$method] = $this->_callback_count;
+			}
 		}
+		$this->_callbacks[$this->_callback_count] = $callback;
+		$this->_callback_count++;
 	}
 
 	/**
@@ -344,22 +343,21 @@ class Dingo {
 	 * @param string $route                 Regular expression pattern which will be match with requested url
 	 * @param string|function $callback     Callback function
 	 * @param array $conditions             Additional conditions
+	 * @param array $methods                HTTP methods
 	 * @return void
 	 */
 	public function route_map_regex($route, $callback, $conditions = null,$methods = null) {
 		$route = trim($route, '/');
 		if (is_null($methods)) {
 			$this->_dynamic_routes[$route]['ALL'] = array($this->_callback_count,$conditions);
-			$this->_callbacks[$this->_callback_count] = $callback;
-			$this->_callback_count++;
-			return;
 		}
-
-		foreach ($methods as $method) {
-			$this->_dynamic_routes[$route][$method] = array($this->_callback_count,$conditions);
-			$this->_callbacks[$this->_callback_count] = $callback;
-			$this->_callback_count++;
+		else {
+			foreach ($methods as $method) {
+				$this->_dynamic_routes[$route][$method] = array($this->_callback_count,$conditions);
+			}
 		}
+		$this->_callbacks[$this->_callback_count] = $callback;
+		$this->_callback_count++;
 	}
 
 	/**
@@ -413,7 +411,6 @@ class Dingo {
 	public function run() {
 		$this->hook_run('pre_system');
 		try {
-			#var_dump($this->_callbacks[$this->_static_routes['/'][$_SERVER['REQUEST_METHOD']]]);
 			$this->hook_run('pre_route', array($this->_request_uri));
 			if (!$this->_routed) {
 				if (!empty($this->_static_routes[$this->_request_uri])) {
@@ -429,9 +426,6 @@ class Dingo {
 			if (!$this->_routed) {
 				if (count($this->_dynamic_routes) > 0) {
 					foreach ($this->_dynamic_routes as $pattern => $data) {
-						/*if ($this->_regex_url($pattern, $this->_callbacks[$pattern], $data[1],$data[0])) {
-							break;
-						}*/
 						if ($this->_regex_url($pattern, $data)) {
 							break;
 						}
@@ -463,21 +457,20 @@ class Dingo {
 	/**
 	 * Checks regex url
 	 * @param string $pattern
-	 * @param array $target
-	 * @param array $conditions
+	 * @param array $arr
 	 * @return bool
 	 */
 	private function _regex_url($pattern, $arr) {
-		if (!empty ($this->_dynamic_routes[$pattern]['ALL'])) {
-			$target = $this->_callbacks[$this->_dynamic_routes[$pattern]['ALL'][0]];
-			$conditions = $this->_dynamic_routes[$pattern]['ALL'][1];
+		if (!empty ($arr['ALL'])) {
+			$target = $this->_callbacks[$arr['ALL'][0]];
+			$conditions = $arr['ALL'][1];
 		}
-		elseif (!empty ($this->_dynamic_routes[$pattern][$_SERVER['REQUEST_METHOD']])) {
-			$target = $this->_callbacks[$this->_dynamic_routes[$pattern][$_SERVER['REQUEST_METHOD']][0]];
-			$conditions = $this->_dynamic_routes[$pattern][$_SERVER['REQUEST_METHOD']][1];
+		elseif (!empty ($arr[$_SERVER['REQUEST_METHOD']])) {
+			$target = $this->_callbacks[$arr[$_SERVER['REQUEST_METHOD']][0]];
+			$conditions = $arr[$_SERVER['REQUEST_METHOD']][1];
 		}
 		else {
-			return;
+			return false;
 		}
 		$p_names = array();
 		$p_values = array();
