@@ -7,6 +7,7 @@ class Dingo {
 	private $_cookies = array();
 	private $_static_routes = array();
 	private $_dynamic_routes = array();
+	private $_callbacks = array();
 	private $_request_uri = '';
 	private $_base_url = '';
 	private $_status = 200;
@@ -85,6 +86,7 @@ class Dingo {
 			'cookie_secure' => false,
 				), $config);
 
+		$_SERVER['REQUEST_METHOD'] = empty($_SERVER['REQUEST_METHOD']) ? 'ALL' : $_SERVER['REQUEST_METHOD'];
 		# Getting Base Url
 		if (isset($_SERVER['HTTP_HOST'])) {
 			$this->_base_url = (isset($_SERVER['HTTPS']) && strtolower($_SERVER['HTTPS']) !== 'off') ? 'https' : 'http';
@@ -319,9 +321,10 @@ class Dingo {
 	 * @param string|function $callback     Callback function
 	 * @return void
 	 */
-	public function route_map($route, $callback) {
+	public function route_map($route, $callback, $methods = array('ALL')) {
 		$route = empty($route) ? '/' : (($route !== '/') ? trim($route) : '/');
-		$this->_static_routes[$route] = $callback;
+		$this->_static_routes[$route] = $methods;
+		$this->_callbacks[$route] = $callback;
 	}
 
 	/**
@@ -331,8 +334,10 @@ class Dingo {
 	 * @param array $conditions             Additional conditions
 	 * @return void
 	 */
-	public function route_map_regex($route, $callback, $conditions = null) {
-		$this->_dynamic_routes[trim($route, '/')] = array($callback, $conditions);
+	public function route_map_regex($route, $callback, $conditions = null,$methods = array('ALL')) {
+		$route = trim($route, '/');
+		$this->_dynamic_routes[$route] = array($methods,$conditions);
+		$this->_callbacks[$route] = $callback;
 	}
 
 	/**
@@ -388,15 +393,15 @@ class Dingo {
 		try {
 			$this->hook_run('pre_route', array($this->_request_uri));
 			if (!$this->_routed) {
-				if (!empty($this->_static_routes[$this->_request_uri])) {
-					$this->route_set_callback($this->_static_routes[$this->_request_uri]);
+				if (!empty($this->_static_routes[$this->_request_uri]) and $this->_is_method_ok($this->_static_routes[$this->_request_uri])) {
+					$this->route_set_callback($this->_callbacks[$this->_request_uri]);
 				}
 			}
 			$this->hook_run('mid_route', array($this->_request_uri));
 			if (!$this->_routed) {
 				if (count($this->_dynamic_routes) > 0) {
 					foreach ($this->_dynamic_routes as $pattern => $data) {
-						if ($this->_regex_url($pattern, $data[0], $data[1])) {
+						if ($this->_regex_url($pattern, $this->_callbacks[$pattern], $data[1],$data[0])) {
 							break;
 						}
 					}
@@ -405,21 +410,20 @@ class Dingo {
 			$this->hook_run('post_route', array($this->_request_uri));
 			if (!$this->_routed) {
 				$this->set_status_header(404);
-				$this->_callback = $this->_static_routes['404'];
+				$this->_callback = $this->_callbacks['404'];
 			}
+
 			if (is_null($this->_params)) {
 				call_user_func($this->_callback);
 			} else {
 				call_user_func_array($this->_callback, $this->_params);
 			}
-		} catch (Stop_dingo $e) {
-			
-		}
+		} catch (Stop_dingo $e) {}
 
 		# Hook 'pre_output' must run before sending header because of 'Content-Length'
 		$this->hook_run('pre_output');
 		$this->_send_header();
-		if (($this->_status < 100 || $this->_status >= 200) && !in_array($this->_status, array(204, 304, 302)) && !empty($_SERVER['REQUEST_METHOD']) && $_SERVER['REQUEST_METHOD'] !== 'HEAD') {
+		if (($this->_status < 100 || $this->_status >= 200) && !in_array($this->_status, array(204, 304, 302)) && $_SERVER['REQUEST_METHOD'] !== 'HEAD') {
 			echo $this->_response_body;
 		}
 		$this->hook_run('post_system');
@@ -432,7 +436,10 @@ class Dingo {
 	 * @param array $conditions
 	 * @return bool
 	 */
-	private function _regex_url($pattern, $target, $conditions) {
+	private function _regex_url($pattern, $target, $conditions,$methods) {
+		if (!$this->_is_method_ok($methods)) {
+			return false;
+		}
 		$p_names = array();
 		$p_values = array();
 		if (preg_match_all('@:([\w]+)@', $pattern, $p_names, PREG_PATTERN_ORDER)) {
@@ -442,13 +449,13 @@ class Dingo {
 				$url_regex = preg_replace('@:[\w]+@', '([a-zA-Z0-9_\+\-%]+)', $pattern);
 			} else {
 				$url_regex = preg_replace_callback('@:[\w]+@', function ($matches) use ($conditions) {
-							$key = ltrim($matches[0], ':');
-							if (array_key_exists($key, $conditions)) {
-								return '(' . $conditions[$key] . ')';
-							} else {
-								return '([a-zA-Z0-9_\+\-%]+)';
-							}
-						}, $pattern);
+					$key = ltrim($matches[0], ':');
+					if (array_key_exists($key, $conditions)) {
+						return '(' . $conditions[$key] . ')';
+					} else {
+						return '([a-zA-Z0-9_\+\-%]+)';
+					}
+				}, $pattern);
 			}
 			$url_regex .= '/?';
 			if (preg_match('@^' . $url_regex . '$@', $this->_request_uri, $p_values)) {
@@ -501,6 +508,9 @@ class Dingo {
 		}
 	}
 
+	private function _is_method_ok($methods) {
+		return (in_array($_SERVER['REQUEST_METHOD'],$methods) or in_array('ALL',$methods));
+	}
 	private function _clean_request($data) {
 		if (is_array($data)) {
 			foreach ($data as $key => $value) {
@@ -518,8 +528,6 @@ class Dingo {
 
 }
 
-class Stop_dingo extends Exception {
-	
-}
+class Stop_dingo extends Exception {}
 
 ?>
