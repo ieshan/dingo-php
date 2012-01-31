@@ -370,10 +370,9 @@ class Dingo {
 
 	/**
 	 * Returns output
-	 * @param string $output
 	 * @return string
 	 */
-	public function output_get($output) {
+	public function output_get() {
 		return $this->_response_body;
 	}
 

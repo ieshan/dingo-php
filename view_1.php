@@ -1,8 +1,10 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN"
+        "http://www.w3.org/TR/html4/loose.dtd">
 <html>
 	<head>
-		<title>Hello</title>
+		<title><?php echo $str; ?></title>
 	</head>
 	<body>
-		<?php var_dump($app->get('eshan',true)); ?>
+		<h1><?php echo $str; ?><h1>
 	</body>
 </html>
