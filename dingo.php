@@ -8,7 +8,6 @@ class Dingo {
 	private $_static_routes = array();
 	private $_dynamic_routes = array();
 	private $_callbacks = array();
-	private $_methods = array();
 	private $_callback_count = 2;
 	private $_request_uri = '';
 	private $_base_url = '';
@@ -76,21 +75,21 @@ class Dingo {
 	 * @param array $config Configuration array
 	 */
 	public function __construct($config = array()) {
-		if (empty(self::$_instance)) {
-			self::$_instance = &$this;
-		}
-
+		self::$_instance = &$this;
 		$this->_configs = array_merge(array(
 			'http_version' => '1.1',
 			'template_dir' => './',
 			'cookie_domain' => '',
 			'cookie_path' => '/',
 			'cookie_secure' => false,
-				), $config);
+			'send_header' => true,
+			'send_body' => true,
+			'run_callback' => true,
+		), $config);
 
 		$_SERVER['REQUEST_METHOD'] = empty($_SERVER['REQUEST_METHOD']) ? 'ALL' : $_SERVER['REQUEST_METHOD'];
 		# Getting Base Url
-		if (isset($_SERVER['HTTP_HOST'])) {
+		if (!empty ($_SERVER['HTTP_HOST'])) {
 			$this->_base_url = (isset($_SERVER['HTTPS']) && strtolower($_SERVER['HTTPS']) !== 'off') ? 'https' : 'http';
 			$this->_base_url .= '://' . $_SERVER['HTTP_HOST'];
 		} else {
@@ -125,11 +124,7 @@ class Dingo {
 	 * @return bool
 	 */
 	public function config($key, $value = null) {
-		if (!is_null($value)) {
-			$this->_configs[$key] = $value;
-		} else {
-			return empty($this->_configs[$key]) ? false : $this->_configs[$key];
-		}
+		return is_null($value) ? (empty($this->_configs[$key]) ? false : $this->_configs[$key]) : ($this->_configs[$key] = $value);
 	}
 
 	/**
@@ -199,10 +194,11 @@ class Dingo {
 	 * Sets HTTP header
 	 * @param string $key
 	 * @param string $value
-	 * @return void
+	 * @return mixed
 	 */
-	public function header($key, $value) {
-		$this->_headers[$key] = $value;
+	public function header($key, $value = null) {
+		#$this->_headers[$key] = $value;
+		return is_null($value) ? (empty($this->_headers[$key]) ? false : $this->_headers[$key]) : ($this->_headers[$key] = $value);
 	}
 
 	/**
@@ -243,10 +239,10 @@ class Dingo {
 	/**
 	 * Sets response status
 	 * @param int $status
-	 * @return void
+	 * @return int
 	 */
-	public function set_status_header($status = 200) {
-		$this->_status = $status;
+	public function status($status = null) {
+		return is_int($status) ? ($this->_status = $status) : $this->_status;
 	}
 
 	/**
@@ -298,22 +294,57 @@ class Dingo {
 	}
 
 	/**
-	 * Checks if routing is done or not
-	 * @return bool
+	 * Returns base url
+	 * @return string
 	 */
-	public function routed() {
-		return $this->_routed;
+	public function url_base() {
+		return $this->_base_url;
 	}
 
+	/**
+	 * Returns current url
+	 * @return string
+	 */
+	public function url_current() {
+		return $this->_base_url . $this->_request_uri;
+	}
+	/**
+	 * Checks if routing is done or not
+	 * @param $routed
+	 * @return bool
+	 */
+	public function routed($routed = null) {
+		return is_bool($routed) ? ($this->_routed = $routed) : $this->_routed;
+	}
+
+	/**
+	 * Returns callback.
+	 * @return mixed
+	 */
+	public function route_get_callback() {
+		return $this->_callback;
+	}
+
+	/**
+	 * Returns callback parameters.
+	 * @return mixed
+	 */
+	public function route_get_params() {
+		return $this->_params;
+	}
 	/**
 	 * Sets route callback
 	 * @param string|function $callback
 	 * @param null $params
 	 * @return void
 	 */
-	public function route_set_callback($callback, $params = null) {
-		$this->_callback = $callback;
-		$this->_params = $params;
+	public function route_set_callback($callback = null, $params = null) {
+		if (!is_null($callback)) {
+			$this->_callback = $callback;
+		}
+		if (!is_null($params)) {
+			$this->_params = $params;
+		}
 		$this->_routed = true;
 	}
 
@@ -433,21 +464,42 @@ class Dingo {
 			}
 			$this->hook_run('post_route', array($this->_request_uri));
 			if (!$this->_routed) {
-				$this->set_status_header(404);
+				$this->status(404);
 				$this->_callback = $this->_callbacks[$this->_static_routes['404']['ALL']];
 			}
 
-			if (is_null($this->_params)) {
-				call_user_func($this->_callback);
-			} else {
-				call_user_func_array($this->_callback, $this->_params);
+			if ($this->_configs['run_callback']) {
+				is_null($this->_params) ? call_user_func($this->_callback) : call_user_func_array($this->_callback, $this->_params);
 			}
 		} catch (Stop_dingo $e) {}
 
 		# Hook 'pre_output' must run before sending header because of 'Content-Length'
 		$this->hook_run('pre_output');
-		$this->_send_header();
-		if (($this->_status < 100 || $this->_status >= 200) && !in_array($this->_status, array(204, 304, 302)) && $_SERVER['REQUEST_METHOD'] !== 'HEAD') {
+		# Send Header
+		if (!headers_sent() && $this->_configs['send_header']) {
+			/*if (!in_array($this->_status, array(204, 304, 302))) {
+				$this->_headers['Content-Length'] = strlen($this->_response_body);
+			}*/
+			if (empty($this->_headers['Content-Type'])) {
+				$this->_headers['Content-Type'] = 'text/html; charset=utf-8';
+			}
+			if (substr(PHP_SAPI, 0, 3) === 'cgi') {
+				# Send Status header if running with fastcgi
+				header('Status: ' . $this->_response_msg[$this->_status]);
+			}
+			else {
+				header('HTTP/' . $this->_configs['http_version'] . ' ' . $this->_response_msg[$this->_status]);
+			}
+			foreach ($this->_headers as $name => $value) {
+				header("{$name}: {$value}");
+			}
+			foreach ($this->_cookies as $cookie) {
+				setcookie($cookie['name'], $cookie['value'], $cookie['expires'], $cookie['path'], $cookie['domain'], $cookie['secure']);
+			}
+			flush();
+		}
+		# Send Body
+		if ($this->_configs['send_body'] && ($this->_status < 100 || $this->_status >= 200) && !in_array($this->_status, array(204, 304, 302)) && $_SERVER['REQUEST_METHOD'] !== 'HEAD') {
 			echo $this->_response_body;
 		}
 		$this->hook_run('post_system');
@@ -510,33 +562,6 @@ class Dingo {
 			}
 		}
 		return false;
-	}
-
-	/**
-	 * Sends HTTP header to browser
-	 */
-	private function _send_header() {
-		if (headers_sent()) {
-			return;
-		}
-		/*if (!in_array($this->_status, array(204, 304, 302))) {
-			$this->_headers['Content-Length'] = strlen($this->_response_body);
-		}*/
-		if (empty($this->_headers['Content-Type'])) {
-			$this->_headers['Content-Type'] = 'text/html; charset=utf-8';
-		}
-		if (substr(PHP_SAPI, 0, 3) === 'cgi') {
-			header('Status: ' . $this->_response_msg[$this->_status]);
-		} else {
-			header('HTTP/' . $this->_configs['http_version'] . ' ' . $this->_response_msg[$this->_status]);
-			foreach ($this->_headers as $name => $value) {
-				header("{$name}: {$value}");
-			}
-			foreach ($this->_cookies as $cookie) {
-				setcookie($cookie['name'], $cookie['value'], $cookie['expires'], $cookie['path'], $cookie['domain'], $cookie['secure']);
-			}
-			flush();
-		}
 	}
 
 	private function _clean_request($data) {
