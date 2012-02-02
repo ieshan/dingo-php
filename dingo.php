@@ -340,7 +340,13 @@ class Dingo {
 	 */
 	public function route_set_callback($callback = null, $params = null) {
 		if (!is_null($callback)) {
-			$this->_callback = $callback;
+			if ($callback == '404') {
+				$this->_callback = $this->_callbacks[$this->_static_routes['404']['ALL']];
+				$this->status(404);
+			}
+			else {
+				$this->_callback = $callback;
+			}
 		}
 		if (!is_null($params)) {
 			$this->_params = $params;
