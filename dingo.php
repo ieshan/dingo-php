@@ -468,9 +468,11 @@ class Dingo {
 				$this->_callback = $this->_callbacks[$this->_static_routes['404']['ALL']];
 			}
 
+			$this->hook_run('pre_controller');
 			if ($this->_configs['run_callback']) {
 				is_null($this->_params) ? call_user_func($this->_callback) : call_user_func_array($this->_callback, $this->_params);
 			}
+			$this->hook_run('post_controller');
 		} catch (Stop_dingo $e) {}
 
 		# Hook 'pre_output' must run before sending header because of 'Content-Length'
